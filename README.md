@@ -18,6 +18,8 @@ University of Bologna
 &nbsp;&nbsp;
 [![Supplementary](https://img.shields.io/badge/PDF-Supplementary-f97316?style=for-the-badge&logo=adobeacrobatreader&logoColor=white)](https://zipdepth.github.io/static/pdfs/zipdepth_supplementary.pdf)
 &nbsp;&nbsp;
+[![Poster](https://img.shields.io/badge/PDF-Poster-8b5cf6?style=for-the-badge&logo=adobeacrobatreader&logoColor=white)](https://zipdepth.github.io/static/pdfs/ZipDepth_ECCV_2026_poster.pdf)
+&nbsp;&nbsp;
 [![Project Page](https://img.shields.io/badge/Project-Page-0ea5e9?style=for-the-badge&logo=googlechrome&logoColor=white)](https://zipdepth.github.io/)
 &nbsp;&nbsp;
 [![Video](https://img.shields.io/badge/YouTube-Video-ff0000?style=for-the-badge&logo=youtube&logoColor=white)](https://www.youtube.com/watch?v=Rmlk2TsIl6k)
