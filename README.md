@@ -152,6 +152,20 @@ pixi run python scripts/infer.py \
   --input assets/examples/clip.mp4
 ```
 
+### Interactive 3D visualization (Rerun)
+
+Runs inference and opens a [Rerun](https://rerun.io) viewer with the RGB image,
+the predicted depth map, and an RGB-colored 3D point cloud backprojected
+through an assumed pinhole camera:
+
+```bash
+pixi run python scripts/infer_rerun.py
+```
+
+> **Optional extras:** ONNX export and FLOPs measurement need packages that are
+> not in the default environment — add them with `pixi add onnx onnxsim` and
+> `pixi add --pypi thop fvcore` as needed.
+
 ---
 
 ## ⚡ Inference

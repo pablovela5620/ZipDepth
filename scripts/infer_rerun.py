@@ -15,14 +15,9 @@ Usage:
     pixi run python scripts/infer_rerun.py --save /tmp/zipdepth.rrd
 """
 
-import sys
 from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
 from typing import Literal, TypeAlias
 
-import cv2
 import numpy as np
 import rerun as rr
 import rerun.blueprint as rrb
@@ -38,18 +33,27 @@ DeviceChoice: TypeAlias = Literal["auto", "cuda", "cpu"]
 FOV_DEG: float = 55.0
 """Assumed horizontal field of view — no real calibration exists for arbitrary images."""
 
+DEPTH_GAMMA: float = 2.2
+"""Compression exponent applied as depth**(1/gamma) to tame the far range."""
+
 DEPTH_EDGE_THRESHOLD: float = 1.1
 """Gradient-magnitude threshold above which depth pixels are treated as flying pixels."""
 
+PINHOLE_ENTITY: str = "world/camera/pinhole"
+"""Entity path of the assumed pinhole camera; RGB and depth images live beneath it."""
 
-def resolve_device(device: DeviceChoice = "auto") -> str:
+POINT_CLOUD_ENTITY: str = "world/point_cloud"
+"""Entity path of the RGB-colored backprojected point cloud."""
+
+
+def resolve_device(device: DeviceChoice) -> Literal["cuda", "cpu"]:
     """Resolve "auto" to cuda when available; validate an explicit "cuda".
 
     Args:
         device: Requested device.
 
     Returns:
-        Concrete torch device string ("cuda" or "cpu").
+        Concrete torch device string.
     """
     if device == "auto":
         return "cuda" if torch.cuda.is_available() else "cpu"
@@ -79,10 +83,7 @@ def estimate_intrinsics(h: int, w: int, fov_deg: float = FOV_DEG) -> Float32[np.
 
 
 def disparity_to_depth(
-    disparity_hw: Float32[np.ndarray, "h w"],
-    focal_length: float,
-    baseline: float = 1.0,
-    gamma: float = 2.2,
+    disparity_hw: Float32[np.ndarray, "h w"], focal_length: float
 ) -> Float32[np.ndarray, "h w"]:
     """Convert relative disparity to bounded, gamma-compressed relative depth.
 
@@ -92,16 +93,14 @@ def disparity_to_depth(
     Args:
         disparity_hw: Relative disparity, float32 [h, w].
         focal_length: Focal length in pixels.
-        baseline: Virtual stereo baseline (arbitrary units).
-        gamma: Compression exponent applied as depth**(1/gamma).
 
     Returns:
         Relative depth (arbitrary units), float32 [h, w].
     """
     depth_ratio: float = float(np.minimum(disparity_hw.max() / (disparity_hw.min() + 1e-6), 100.0))
     min_disparity: float = float(disparity_hw.max()) / depth_ratio
-    depth_hw: Float32[np.ndarray, "h w"] = (focal_length * baseline) / np.maximum(disparity_hw, min_disparity)
-    depth_hw = np.power(depth_hw, 1.0 / gamma).astype(np.float32)
+    depth_hw: Float32[np.ndarray, "h w"] = focal_length / np.maximum(disparity_hw, min_disparity)
+    depth_hw = np.power(depth_hw, 1.0 / DEPTH_GAMMA).astype(np.float32)
     return depth_hw
 
 
@@ -160,7 +159,7 @@ def main(
         device: Inference device; "auto" picks cuda when available.
         save: Write the recording to this .rrd path instead of spawning a viewer.
     """
-    resolved_device: str = resolve_device(device)
+    resolved_device: Literal["cuda", "cpu"] = resolve_device(device)
 
     rr.init("zipdepth_infer", strict=True)
     if save is not None:
@@ -168,63 +167,58 @@ def main(
     else:
         rr.spawn()
 
-    loaded: UInt8[np.ndarray, "h w 3"] | None = cv2.imread(str(image))
-    if loaded is None:
-        raise FileNotFoundError(f"Cannot load: {image}")
-    bgr_hw3: UInt8[np.ndarray, "h w 3"] = loaded
-    rgb_hw3: UInt8[np.ndarray, "h w 3"] = cv2.cvtColor(bgr_hw3, cv2.COLOR_BGR2RGB)
-    h: int = rgb_hw3.shape[0]
-    w: int = rgb_hw3.shape[1]
-
     predictor = DepthInference(
         checkpoint_path=str(checkpoint),
         device=resolved_device,
         input_size=input_size,
         warmup_iters=0,
     )
-    with torch.no_grad():
-        disparity_hw: Float32[np.ndarray, "h w"] = predictor.infer_image(bgr_hw3)
+    bgr_hw3: UInt8[np.ndarray, "h w 3"] = predictor._load_bgr(str(image))
+    rgb_hw3: UInt8[np.ndarray, "h w 3"] = np.ascontiguousarray(bgr_hw3[:, :, ::-1])
+    h: int = rgb_hw3.shape[0]
+    w: int = rgb_hw3.shape[1]
+
+    disparity_hw: Float32[np.ndarray, "h w"] = predictor.infer_image(bgr_hw3)
 
     k_33: Float32[np.ndarray, "3 3"] = estimate_intrinsics(h, w)
     depth_hw: Float32[np.ndarray, "h w"] = disparity_to_depth(disparity_hw, focal_length=float(k_33[0, 0]))
     edges_hw: Bool[np.ndarray, "h w"] = depth_edges_mask(depth_hw)
     depth_hw = (depth_hw * ~edges_hw).astype(np.float32)
 
-    rr.log("world/camera", rr.Transform3D(translation=[0.0, 0.0, 0.0]), static=True)
     rr.log(
-        "world/camera/pinhole",
+        PINHOLE_ENTITY,
         rr.Pinhole(image_from_camera=k_33, width=w, height=h, camera_xyz=rr.ViewCoordinates.RDF),
         static=True,
     )
-    rr.log("world/camera/pinhole/image", rr.Image(rgb_hw3).compress(jpeg_quality=90), static=True)
-    rr.log("world/camera/pinhole/depth", rr.DepthImage(depth_hw, meter=1.0), static=True)
+    rr.log(f"{PINHOLE_ENTITY}/image", rr.Image(rgb_hw3).compress(jpeg_quality=90), static=True)
+    rr.log(f"{PINHOLE_ENTITY}/depth", rr.DepthImage(depth_hw, meter=1.0), static=True)
 
+    # Backproject only valid pixels — masked flying pixels would otherwise all
+    # land at the camera origin as a spurious colored blob.
+    valid_hw: Bool[np.ndarray, "h w"] = depth_hw > 0
     points_hw3: Float32[np.ndarray, "h w 3"] = depth_to_points(depth_hw, k_33)
     rr.log(
-        "world/point_cloud",
-        rr.Points3D(
-            positions=rearrange(points_hw3, "h w c -> (h w) c"),
-            colors=rearrange(rgb_hw3, "h w c -> (h w) c"),
-        ),
+        POINT_CLOUD_ENTITY,
+        rr.Points3D(positions=points_hw3[valid_hw], colors=rgb_hw3[valid_hw]),
         static=True,
     )
 
     # Frame the 3D view on the mid-range content: eye above and behind the
     # camera origin, orbiting a point partway into the scene (RDF: +Y is down).
-    valid_depth: Float32[np.ndarray, "n"] = depth_hw[depth_hw > 0]
+    valid_depth: Float32[np.ndarray, "n"] = depth_hw[valid_hw]
     target_z: float = float(np.percentile(valid_depth, 40))
     blueprint: rrb.Blueprint = rrb.Blueprint(
         rrb.Horizontal(
             rrb.Vertical(
-                rrb.Spatial2DView(origin="world/camera/pinhole/image", name="RGB"),
-                rrb.Spatial2DView(origin="world/camera/pinhole/depth", name="Depth"),
+                rrb.Spatial2DView(origin=f"{PINHOLE_ENTITY}/image", name="RGB"),
+                rrb.Spatial2DView(origin=f"{PINHOLE_ENTITY}/depth", name="Depth"),
             ),
             rrb.Spatial3DView(
                 origin="world",
                 name="3D",
                 # The RGB point cloud is logged explicitly; hide the DepthImage's
                 # own colormapped backprojection so the clouds don't double up.
-                contents=["+ $origin/**", "- world/camera/pinhole/depth"],
+                contents=["+ $origin/**", f"- {PINHOLE_ENTITY}/depth"],
                 eye_controls=rrb.archetypes.EyeControls3D(
                     kind=rrb.Eye3DKind.Orbital,
                     position=[0.0, -0.5 * target_z, -0.6 * target_z],
