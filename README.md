@@ -96,36 +96,18 @@ The neck combines **SPPF** multi-scale pooling with a **Cross-Scale Fusion** mod
 
 ## 🔧 Installation
 
-**Requirements:** Python ≥ 3.9, PyTorch ≥ 2.4, CUDA (recommended)
+**Requirements:** Linux, Git, and an NVIDIA GPU with a current driver (recommended)
 
 ```bash
+# Install pixi
+curl -fsSL https://pixi.sh/install.sh | bash
+
 git clone https://github.com/fabiotosi92/ZipDepth
 cd ZipDepth
-
-# Create and activate a virtual environment (recommended)
-python -m venv venv
-source venv/bin/activate
-
-pip install -r requirements.txt
-pip install -e .
+pixi run start
 ```
 
-> **PyTorch / CUDA:** `requirements.txt` installs the default PyTorch wheel, which on Linux ships with a bundled CUDA runtime. If you need a specific CUDA version (or a CPU-only build), install PyTorch first from the [official selector](https://pytorch.org/get-started/locally/), then run `pip install -r requirements.txt`.
-
-<details>
-<summary>Optional dependencies</summary>
-
-```bash
-# Faster JPEG decoding (recommended)
-pip install PyTurboJPEG
-
-# FLOPs measurement in benchmark
-pip install fvcore thop
-
-# ONNX graph simplification during export
-pip install onnx onnxsim
-```
-</details>
+> **PyTorch / CUDA:** Pixi installs the locked PyTorch wheel from PyPI. On Linux, this wheel includes its CUDA runtime, so only a compatible NVIDIA driver is required on the host.
 
 ---
 
@@ -150,16 +132,13 @@ Both variants share identical encoder and decoder weights. The only difference i
 ### Single image
 
 ```bash
-python scripts/infer.py \
-  --checkpoint checkpoints/zipdepth_base.pth \
-  --input assets/examples/im0.jpg \
-  --input-size 384
+pixi run start
 ```
 
 ### Folder of images
 
 ```bash
-python scripts/infer.py \
+pixi run python scripts/infer.py \
   --checkpoint checkpoints/zipdepth_base.pth \
   --input assets/examples/imgs/ \
   --output output/depth/
@@ -168,10 +147,24 @@ python scripts/infer.py \
 ### Video
 
 ```bash
-python scripts/infer.py \
+pixi run python scripts/infer.py \
   --checkpoint checkpoints/zipdepth_base.pth \
   --input assets/examples/clip.mp4
 ```
+
+### Interactive 3D visualization (Rerun)
+
+Runs inference and opens a [Rerun](https://rerun.io) viewer with the RGB image,
+the predicted depth map, and an RGB-colored 3D point cloud backprojected
+through an assumed pinhole camera:
+
+```bash
+pixi run python scripts/infer_rerun.py
+```
+
+> **Optional extras:** ONNX export and FLOPs measurement need packages that are
+> not in the default environment — add them with `pixi add onnx onnxsim` and
+> `pixi add --pypi thop fvcore` as needed.
 
 ---
 
