@@ -23,6 +23,9 @@ tqdm = ">=4.66.0"
 pyyaml = ">=6.0"
 tensorboard = ">=2.16.0"
 libjpeg-turbo = ">=3.0.0,<4"
+rerun-sdk = ">=0.34"
+tyro = ">=0.9"
+jaxtyping = ">=0.2.36"
 
 [tool.pixi.pypi-dependencies]
 torch = ">=2.12.0"
