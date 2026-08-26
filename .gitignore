@@ -13,6 +13,7 @@ build/
 venv/
 env/
 .venv/
+.pixi/
 
 # Checkpoints & model weights
 # (zipdepth_base.pth is intentionally tracked — see checkpoints/)
