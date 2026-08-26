@@ -26,6 +26,7 @@ libjpeg-turbo = ">=3.0.0,<4"
 rerun-sdk = ">=0.34"
 tyro = ">=0.9"
 jaxtyping = ">=0.2.36"
+einops = ">=0.8"
 
 [tool.pixi.pypi-dependencies]
 torch = ">=2.12.0"
